@@ -1,0 +1,815 @@
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  ReactNode,
+} from "react";
+import { Dropdown, Label, Separator, Button } from "@heroui/react";
+import {
+  CaretRight,
+  CaretUpDown,
+  List,
+  PushPin,
+  PushPinSlash,
+  Gear,
+  UserCircle,
+  CreditCard,
+  SignOut,
+  Sparkle,
+  Question,
+  SquaresFour, // Ikon untuk butang Tour
+} from "@phosphor-icons/react";
+import SIDEBAR_DATA from "../data/sidebar-data";
+import BreadcrumbTrail, { generateBreadcrumbs } from "./breadcrumb-trail";
+import { useRouter, usePathname } from "next/navigation";
+import { useAuthStore } from "../libs/use-user";
+import { useAppTour } from "../libs/use-app-tour";
+import { ThemeSwitch } from "./theme-switch";
+
+// ==========================================
+// HELPER: Tentukan menu aktif berdasarkan URL asli
+// (bukan cuma dari klik terakhir — ini yang bikin
+// highlight tetap benar walau di-refresh / direct link)
+// ==========================================
+function findActiveMenuId(pathname: string): string {
+  let bestMatchId = "main-0";
+  let maxMatchLength = 0;
+
+  for (let i = 0; i < SIDEBAR_DATA.navMain.length; i++) {
+    const item = SIDEBAR_DATA.navMain[i];
+    if (item.items) {
+      for (let j = 0; j < item.items.length; j++) {
+        const itemUrl = "/dashboard" + item.items[j].url.split("?")[0];
+        if (
+          pathname.startsWith(itemUrl) &&
+          itemUrl !== "/dashboard" &&
+          itemUrl.length > maxMatchLength
+        ) {
+          bestMatchId = `main-${i}-sub-${j}`;
+          maxMatchLength = itemUrl.length;
+        }
+      }
+    } else if (item.url && item.url !== "#") {
+      const itemUrl = "/dashboard" + item.url.split("?")[0];
+      if (pathname.startsWith(itemUrl) && itemUrl.length > maxMatchLength) {
+        bestMatchId = `main-${i}`;
+        maxMatchLength = itemUrl.length;
+      }
+    }
+  }
+  return bestMatchId;
+}
+
+// ==========================================
+// 1. KONTEKS GLOBAL & HOOK LAYOUT
+// ==========================================
+interface SidebarContextType {
+  isExpanded: boolean;
+  isPinned: boolean;
+  setIsPinned: (val: boolean) => void;
+  hoveredMenu: string;
+  setHoveredMenu: (val: string) => void;
+  activeMenu: string;
+  setActiveMenu: (val: string) => void;
+}
+
+const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
+const useSidebar = () => {
+  const context = useContext(SidebarContext);
+  if (!context) throw new Error("useSidebar must be used within Provider");
+  return context;
+};
+
+// ==========================================
+// 2. ITEM MENU SIDEBAR
+// ==========================================
+const SidebarItem = ({
+  item,
+  parentId,
+  staggerIdx,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  item: any;
+  parentId: string;
+  staggerIdx: number;
+}) => {
+  const { isExpanded, hoveredMenu, setHoveredMenu, activeMenu, setActiveMenu } =
+    useSidebar();
+  const router = useRouter();
+
+  const [isOpen, setIsOpen] = useState(item.isActive || false);
+  const isMainProminent = hoveredMenu === parentId || activeMenu === parentId;
+
+  // Auto-buka folder ini kalau ada sub-item di dalamnya yang lagi aktif
+  // (mis. user refresh langsung di /dashboard/settings/notifications)
+  useEffect(() => {
+    if (activeMenu.startsWith(`${parentId}-sub-`)) {
+      setIsOpen(true);
+    }
+  }, [activeMenu, parentId]);
+
+  return (
+    <div className="flex flex-col">
+      <div
+        className="relative cursor-pointer py-0.5 group outline-none"
+        onMouseEnter={() => setHoveredMenu(parentId)}
+        onClick={() => {
+          setIsOpen(!isOpen);
+          setActiveMenu(parentId);
+          // Jika item utama punya URL dan tidak punya sub-menu, navigasi di sini
+          if (item.url && !item.items) {
+            router.replace(item.url);
+          }
+        }}
+      >
+        <div
+          data-nav-id={parentId}
+          className={`relative z-10 flex items-center w-full py-2.5 rounded-lg transition-colors duration-300
+            ${!isExpanded ? "justify-center" : ""}
+            ${
+              isMainProminent
+                ? "text-foreground font-medium"
+                : "text-muted-foreground group-hover:text-foreground"
+            }`}
+        >
+          <div
+            className="w-[48px] flex items-center justify-center shrink-0"
+            title={!isExpanded ? item.title : undefined}
+          >
+            {item.icon && (
+              <item.icon
+                className="w-5 h-5"
+                weight={isMainProminent ? "fill" : "regular"}
+              />
+            )}
+          </div>
+
+          <div
+            className={`grid css-grid-transition flex-1 ${
+              isExpanded ? "grid-cols-[1fr]" : "grid-cols-[0fr]"
+            }`}
+          >
+            <div className="overflow-hidden whitespace-nowrap w-full">
+              <div
+                className="flex items-center justify-between pr-2 w-full"
+                style={{
+                  transform: isExpanded
+                    ? "translate3d(0, 0, 0)"
+                    : "translate3d(0, 15px, 0)",
+                  opacity: isExpanded ? 1 : 0,
+                  transition: `transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) ${
+                    isExpanded ? staggerIdx * 0.03 : 0
+                  }s, opacity 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) ${
+                    isExpanded ? staggerIdx * 0.03 : 0
+                  }s`,
+                  willChange: "transform, opacity",
+                }}
+              >
+                <span className="text-sm">{item.title}</span>
+                {item.items && (
+                  <CaretRight
+                    className={`w-4 h-4 transition-transform duration-500 ease-[cubic-bezier(0.2,0.9,0.3,1)] ${
+                      isOpen ? "rotate-90" : ""
+                    }`}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={`grid css-grid-transition ${
+          isOpen && isExpanded && item.items
+            ? "grid-rows-[1fr] opacity-100"
+            : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="pl-[44px] pr-2 py-1 flex flex-col relative mt-1">
+            <div className="absolute left-[24px] top-1 bottom-1 w-px bg-border" />
+
+            {item.items &&
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              item.items.map((subItem: any, idx: number) => {
+                const subId = `${parentId}-sub-${idx}`;
+                const isSubProminent =
+                  hoveredMenu === subId || activeMenu === subId;
+
+                return (
+                  <div
+                    key={idx}
+                    className="relative cursor-pointer py-0.5 group/sub"
+                    onMouseEnter={() => setHoveredMenu(subId)}
+                    onClick={() => {
+                      setActiveMenu(subId);
+                      router.push("/dashboard" + subItem.url);
+                    }}
+                  >
+                    <div
+                      data-nav-id={subId}
+                      className={`relative z-10 block text-sm py-1.5 px-3 rounded-md transition-colors duration-300 whitespace-nowrap
+                      ${
+                        isSubProminent
+                          ? "text-foreground font-medium"
+                          : "text-muted-foreground group-hover/sub:text-foreground"
+                      }`}
+                    >
+                      {subItem.title}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// 3. SUSUN ATUR UTAMA (SIDEBAR & HEADER)
+// ==========================================
+export default function Sidebar({ children }: { children?: ReactNode }) {
+  const asideRef = useRef<HTMLElement>(null);
+  const pillRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [isPinned, setIsPinned] = useState(false);
+  const [isHoveredSidebar, setIsHoveredSidebar] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  const isExpanded = isPinned || isHoveredSidebar || isMobileOpen;
+
+  const [activeMenu, setActiveMenu] = useState(() =>
+    findActiveMenuId(pathname),
+  );
+  const [hoveredMenu, setHoveredMenu] = useState(() =>
+    findActiveMenuId(pathname),
+  );
+  const [isPillReady, setIsPillReady] = useState(false);
+
+  const { user, logout } = useAuthStore();
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
+  };
+
+  const { startTour } = useAppTour(() => {
+    setIsPinned(true);
+  });
+
+  // Sinkronkan menu aktif tiap kali URL berubah
+  useEffect(() => {
+    const id = findActiveMenuId(pathname);
+    setActiveMenu(id);
+    setHoveredMenu(id);
+  }, [pathname]);
+
+  const updatePillPosition = useCallback(() => {
+    if (!asideRef.current || !pillRef.current) return;
+
+    let targetId = hoveredMenu;
+
+    if (!isExpanded && targetId.includes("-sub-")) {
+      targetId = targetId.split("-sub-")[0];
+    }
+
+    const targetEl = asideRef.current.querySelector(
+      `[data-nav-id="${targetId}"]`,
+    );
+
+    if (targetEl) {
+      const asideRect = asideRef.current.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+
+      if (targetRect.width === 0 && targetRect.height === 0) {
+        pillRef.current.style.opacity = "0";
+        return;
+      }
+
+      const x = targetRect.left - asideRect.left;
+      const y = targetRect.top - asideRect.top;
+
+      pillRef.current.style.opacity = "1";
+      pillRef.current.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      pillRef.current.style.width = `${targetRect.width}px`;
+      pillRef.current.style.height = `${targetRect.height}px`;
+    } else {
+      pillRef.current.style.opacity = "0";
+    }
+  }, [hoveredMenu, isExpanded]);
+
+  useEffect(() => {
+    updatePillPosition();
+  }, [hoveredMenu, updatePillPosition]);
+
+  useEffect(() => {
+    let frameId: number;
+    const startTime = performance.now();
+    const duration = 500;
+
+    const loop = (time: number) => {
+      updatePillPosition();
+      if (time - startTime < duration) {
+        frameId = requestAnimationFrame(loop);
+      }
+    };
+    frameId = requestAnimationFrame(loop);
+
+    return () => cancelAnimationFrame(frameId);
+  }, [activeMenu, isExpanded, updatePillPosition]);
+
+  useEffect(() => {
+    if (!isPillReady) {
+      const raf = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setIsPillReady(true));
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [isPillReady]);
+
+  useEffect(() => {
+    if (!asideRef.current) return;
+    const observer = new ResizeObserver(() => updatePillPosition());
+    observer.observe(asideRef.current);
+    return () => observer.disconnect();
+  }, [updatePillPosition]);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileOpen(false);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Grup menu bawah (disematkan terpisah, di atas kartu user) vs
+  // grup menu utama (yang scroll). Index asli dari SIDEBAR_DATA.navMain
+  // tetap dipakai sebagai parentId supaya findActiveMenuId gak perlu diubah.
+  const bottomTitles = ["Booking Online", "Pengaturan"];
+  const mainNavItems = SIDEBAR_DATA.navMain
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => !bottomTitles.includes(item.title));
+  const bottomNavItems = SIDEBAR_DATA.navMain
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => bottomTitles.includes(item.title));
+
+  const currentBreadcrumbs = generateBreadcrumbs(
+    activeMenu,
+    "Mahalu Spa",
+    pathname,
+  );
+
+  return (
+    <>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+        .css-grid-transition {
+          transition: 
+            grid-template-columns 0.5s cubic-bezier(0.2, 0.9, 0.3, 1),
+            grid-template-rows 0.5s cubic-bezier(0.2, 0.9, 0.3, 1),
+            opacity 0.4s ease;
+        }
+                
+        .fluid-pill-transition {
+          transition: 
+            transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1),
+            width 0.5s cubic-bezier(0.2, 0.9, 0.3, 1),
+            height 0.5s cubic-bezier(0.2, 0.9, 0.3, 1),
+            opacity 0.3s ease;
+          will-change: transform, width, height, opacity;
+        }
+
+        @keyframes fadeInUpStagger {
+          0% { opacity: 0; transform: translate3d(0, 15px, 0); }
+          100% { opacity: 1; transform: translate3d(0, 0, 0); }
+        }
+        
+        .animate-stagger-item {
+          opacity: 0;
+          animation: fadeInUpStagger 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+        }
+      `,
+        }}
+      />
+
+      <SidebarContext.Provider
+        value={{
+          isExpanded,
+          isPinned,
+          setIsPinned,
+          hoveredMenu,
+          setHoveredMenu,
+          activeMenu,
+          setActiveMenu,
+        }}
+      >
+        <div className="flex h-screen w-full bg-background font-sans text-foreground overflow-hidden">
+          <div
+            onClick={() => setIsMobileOpen(false)}
+            className={`fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden transition-opacity duration-500 ease-in-out
+              ${
+                isMobileOpen
+                  ? "opacity-100 pointer-events-auto"
+                  : "opacity-0 pointer-events-none"
+              }`}
+          />
+
+          <aside
+            ref={asideRef}
+            onMouseEnter={() => setIsHoveredSidebar(true)}
+            onMouseLeave={() => {
+              setIsHoveredSidebar(false);
+              setHoveredMenu(activeMenu);
+            }}
+            className={`fixed md:relative z-50 h-full flex flex-col border-r border-border bg-background shadow-sm overflow-hidden
+              transition-all duration-500 ease-[cubic-bezier(0.2,0.9,0.3,1)]
+              ${
+                isMobileOpen
+                  ? "translate-x-0"
+                  : "-translate-x-full md:translate-x-0"
+              }`}
+            style={{
+              width: isExpanded
+                ? "var(--sidebar-width-expanded)"
+                : "var(--sidebar-width-collapsed)",
+            }}
+          >
+            <div
+              ref={pillRef}
+              className={`absolute z-0 pointer-events-none bg-accent border border-border/50 shadow-sm rounded-lg
+                ${isPillReady ? "fluid-pill-transition" : ""}`}
+              style={{ opacity: 0 }}
+            />
+
+            <div className="p-4 flex items-center h-16 shrink-0 border-b border-border relative z-20">
+              <div className="flex-1 min-w-0">
+                <div
+                  className={`w-full flex items-center ${
+                    !isExpanded ? "justify-center" : ""
+                  }`}
+                >
+                  <div className="w-[48px] flex items-center justify-center shrink-0">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary text-primary-foreground shadow-sm">
+                      <SquaresFour className="w-4 h-4" weight="bold" />
+                    </div>
+                  </div>
+                  <div
+                    className={`grid css-grid-transition flex-1 ${
+                      isExpanded ? "grid-cols-[1fr]" : "grid-cols-[0fr]"
+                    }`}
+                  >
+                    <div className="overflow-hidden whitespace-nowrap w-full">
+                      <div
+                        style={{
+                          transform: isExpanded
+                            ? "translate3d(0,0,0)"
+                            : "translate3d(0,10px,0)",
+                          opacity: isExpanded ? 1 : 0,
+                          transition:
+                            "transform 0.5s cubic-bezier(0.2,0.9,0.3,1), opacity 0.5s cubic-bezier(0.2,0.9,0.3,1)",
+                        }}
+                      >
+                        <span className="text-sm font-semibold">
+                          Mahalu Spa
+                        </span>
+                        <span className="block text-xs text-muted-foreground font-normal">
+                          Business Management
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* TARGET TOUR #2: BUTANG PIN */}
+              <div
+                className={`grid css-grid-transition shrink-0 ${
+                  isExpanded
+                    ? "grid-cols-[1fr] opacity-100"
+                    : "grid-cols-[0fr] opacity-0"
+                }`}
+              >
+                <div className="overflow-hidden flex justify-end w-fit pl-1">
+                  <button
+                    id="tour-pin-button"
+                    onClick={() => setIsPinned(!isPinned)}
+                    className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors duration-200 shrink-0"
+                    title={isPinned ? "Nyahsemat Sidebar" : "Semat Sidebar"}
+                  >
+                    {isPinned ? (
+                      <PushPinSlash className="w-4 h-4" weight="fill" />
+                    ) : (
+                      <PushPin className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <nav
+              onScroll={updatePillPosition}
+              className="flex-1 overflow-y-auto overflow-x-hidden py-6 px-4 flex flex-col gap-6 relative z-10"
+            >
+              <div>
+                <div
+                  className={`grid css-grid-transition ${
+                    isExpanded
+                      ? "grid-rows-[1fr] opacity-100 mb-2"
+                      : "grid-rows-[0fr] opacity-0 mb-0"
+                  }`}
+                >
+                  <h4 className="px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap overflow-hidden">
+                    Platform
+                  </h4>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {mainNavItems.map(({ item, idx }) => (
+                    <div
+                      key={idx}
+                      className="animate-stagger-item"
+                      style={{ animationDelay: `${idx * 0.04}s` }}
+                    >
+                      <SidebarItem
+                        item={item}
+                        parentId={`main-${idx}`}
+                        staggerIdx={idx}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </nav>
+
+            {/* Grup bawah — Booking Online & Pengaturan, disematkan
+               terpisah dari nav yang scroll, tepat di atas kartu user */}
+            <div className="px-4 pt-2 pb-1 border-t border-border relative z-10 shrink-0">
+              <div className="flex flex-col gap-1 pt-2">
+                {bottomNavItems.map(({ item, idx }) => (
+                  <SidebarItem
+                    key={idx}
+                    item={item}
+                    parentId={`main-${idx}`}
+                    staggerIdx={idx}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* TARGET TOUR #3: DROPDOWN PENGGUNA */}
+            <div className="p-4 border-t border-border relative z-20 w-full">
+              <Dropdown className="min-w-[260px] p-1 bg-background border border-border shadow-lg rounded-xl mb-2">
+                <Dropdown.Trigger className="w-full">
+                  <div
+                    id="tour-user-dropdown"
+                    className="relative w-full block cursor-pointer py-0.5 group outline-none border-none bg-transparent text-left"
+                    onMouseEnter={() => setHoveredMenu("footer-user")}
+                    onClick={() => setActiveMenu("footer-user")}
+                  >
+                    <div
+                      data-nav-id="footer-user"
+                      className={`relative z-10 flex items-center w-full py-1.5 rounded-lg transition-colors duration-200
+                      ${!isExpanded ? "justify-center" : ""}
+                      ${
+                        hoveredMenu === "footer-user" ||
+                        activeMenu === "footer-user"
+                          ? "text-foreground font-medium"
+                          : "text-muted-foreground group-hover:text-foreground"
+                      }`}
+                    >
+                      <div className="w-[48px] flex items-center justify-center shrink-0">
+                        <img
+                          src={SIDEBAR_DATA.user.avatar}
+                          alt="User"
+                          className="w-9 h-9 rounded-md border border-border shrink-0 object-cover"
+                        />
+                      </div>
+
+                      <div
+                        className={`grid css-grid-transition flex-1 ${
+                          isExpanded ? "grid-cols-[1fr]" : "grid-cols-[0fr]"
+                        }`}
+                      >
+                        <div className="overflow-hidden whitespace-nowrap w-full">
+                          <div
+                            className="flex items-center justify-between pr-2 w-full"
+                            style={{
+                              transform: isExpanded
+                                ? "translate3d(0, 0, 0)"
+                                : "translate3d(0, 10px, 0)",
+                              opacity: isExpanded ? 1 : 0,
+                              transition:
+                                "transform 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) 0.1s, opacity 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) 0.1s",
+                              willChange: "transform, opacity",
+                            }}
+                          >
+                            <div className="flex flex-col items-start w-full">
+                              <span className="text-sm font-semibold truncate w-full text-left">
+                                {user?.name || "User"}
+                              </span>
+                              <span className="text-xs text-muted-foreground truncate w-full text-left font-normal">
+                                {user?.email || "User@gmail.com"}
+                              </span>
+                            </div>
+                            <CaretUpDown className="w-4 h-4 shrink-0 text-muted-foreground ml-2" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Dropdown.Trigger>
+                <Dropdown.Popover>
+                  <Dropdown.Menu aria-label="User Actions Menu">
+                    <Dropdown.Section className="">
+                      <Dropdown.Item
+                        id="user-info"
+                        textValue="Info Pengguna"
+                        className="py-2 cursor-default pointer-events-none opacity-100 mb-1 border-b border-border/50 rounded-none"
+                      >
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={SIDEBAR_DATA.user.avatar}
+                            alt="User Avatar"
+                            className="w-10 h-10 rounded-full border border-border"
+                          />
+                          <div className="flex flex-col">
+                            <span className="text-sm font-semibold">
+                              {user?.name || "User"}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {user?.email || "User@gmail.com"}
+                            </span>
+                          </div>
+                        </div>
+                      </Dropdown.Item>
+                    </Dropdown.Section>
+
+                    <Dropdown.Section>
+                      <Dropdown.Item
+                        id="upgrade"
+                        textValue="Naik Taraf"
+                        className="py-2 hover:bg-accent rounded-md transition-colors"
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-2">
+                            <Sparkle
+                              className="w-4 h-4 text-amber-500"
+                              weight="fill"
+                            />
+                            <Label className="cursor-pointer text-sm font-medium">
+                              Naik Taraf ke Pro
+                            </Label>
+                          </div>
+                        </div>
+                      </Dropdown.Item>
+                      <Dropdown.Item
+                        id="profile"
+                        textValue="Profil Saya"
+                        className="py-2 hover:bg-accent rounded-md transition-colors"
+                        onClick={() =>
+                          router.push("/dashboard/settings/profile")
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <UserCircle className="w-4 h-4 text-muted-foreground" />
+                          <Label className="cursor-pointer text-sm font-medium">
+                            Profil Saya
+                          </Label>
+                        </div>
+                      </Dropdown.Item>
+
+                      {/* <Dropdown.Item
+                        id="settings"
+                        textValue="Tetapan"
+                        className="py-2 hover:bg-accent rounded-md transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Gear className="w-4 h-4 text-muted-foreground" />
+                          <Label className="cursor-pointer text-sm font-medium">
+                            Tetapan Akaun
+                          </Label>
+                        </div>
+                      </Dropdown.Item> */}
+                    </Dropdown.Section>
+                    <Separator className="my-1 border-border/50" />
+                    <Dropdown.Section>
+                      <Dropdown.Item
+                        id="logout"
+                        textValue="Log Keluar"
+                        variant="danger"
+                        className="py-1"
+                      >
+                        <div className="flex w-full items-center justify-between gap-2 px-2 py-1.5">
+                          <button
+                            onClick={handleLogout}
+                            className="flex items-center gap-2 text-danger transition-colors hover:opacity-80"
+                          >
+                            <SignOut className="w-4 h-4" weight="bold" />
+                            <Label className="max-sm:hidden cursor-pointer text-sm font-semibold text-danger">
+                              Log Keluar
+                            </Label>
+                          </button>
+
+                          <ThemeSwitch />
+                        </div>
+                      </Dropdown.Item>
+                    </Dropdown.Section>
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown>
+            </div>
+          </aside>
+
+          {/* ================= KANDUNGAN UTAMA ================= */}
+          <main className="flex-1 flex flex-col h-full overflow-hidden transition-all duration-300">
+            <header className="h-16 shrink-0 flex items-center justify-between px-4 md:px-6 bg-background border-b border-border relative z-10">
+              <div className="flex items-center gap-4">
+                {/* TARGET TOUR #1: BUTANG TOGGLE SIDEBAR */}
+                <button
+                  id="tour-sidebar-toggle"
+                  onClick={() => {
+                    if (window.innerWidth < 768) setIsMobileOpen(true);
+                    else setIsPinned(!isPinned);
+                  }}
+                  className="p-2 rounded-md hover:bg-accent text-muted-foreground transition-colors outline-none"
+                >
+                  <List className="w-5 h-5" />
+                </button>
+
+                <BreadcrumbTrail items={currentBreadcrumbs} />
+              </div>
+
+              {/* BUTANG MULA TOUR */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-border hover:bg-surface-secondary font-medium flex items-center justify-center"
+                onClick={startTour}
+              >
+                <Question className="w-4 h-4 mr-1" />{" "}
+                <span className="max-md:hidden text-sm font-medium">
+                  Bantuan Panduan
+                </span>
+              </Button>
+            </header>
+
+            <div
+              className="flex-1 overflow-auto"
+              style={{
+                padding: "var(--page-padding-y) var(--page-padding-x)",
+              }}
+            >
+              {children || (
+                <div className="text-muted-foreground max-w-2xl">
+                  <h1
+                    style={{
+                      fontSize: "var(--text-2xl)",
+                      fontWeight: "bold",
+                      color: "var(--foreground)",
+                      marginBottom: "var(--space-4)",
+                    }}
+                  >
+                    Kandungan untuk:{" "}
+                    {currentBreadcrumbs[currentBreadcrumbs.length - 1].title}
+                  </h1>
+                  <p
+                    style={{
+                      marginBottom: "var(--space-4)",
+                      fontSize: "var(--text-base)",
+                    }}
+                  >
+                    Sidebar ini direka setanding perisian korporat terkemuka
+                    seperti Vercel dan Stripe.
+                  </p>
+                  <ul
+                    style={{
+                      listStyleType: "disc",
+                      paddingLeft: "var(--space-5)",
+                      gap: "var(--space-2)",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <li style={{ fontSize: "var(--text-base)" }}>
+                      Sila klik butang pin/unpin atau klik pada{" "}
+                      {`"Bantuan Panduan"`} di sudut kanan atas untuk mencuba
+                      animasi *tour* Driver.js.
+                    </li>
+                  </ul>
+                </div>
+              )}
+            </div>
+          </main>
+        </div>
+      </SidebarContext.Provider>
+    </>
+  );
+}
