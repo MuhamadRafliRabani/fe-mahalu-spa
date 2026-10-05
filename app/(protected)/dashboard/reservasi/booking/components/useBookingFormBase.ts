@@ -641,10 +641,20 @@ export function useBookingFormBase({
     return ids;
   }, [cartLines]);
 
-  const selectedBundle = useMemo(
-    () => cartLines.find((l) => l.kind === "bundle")?.bundle ?? null,
-    [cartLines],
-  );
+  const selectedBundle = useMemo(() => {
+    const bundle = cartLines.find((line) => line.kind === "bundle")?.bundle;
+    if (!bundle) return null;
+
+    const bundleDetails = activeBundles.find(
+      (candidate) => candidate.id === bundle.id,
+    );
+    return {
+      ...bundle,
+      start_date: bundleDetails?.start_date ?? bundle.start_date,
+      end_date: bundleDetails?.end_date ?? bundle.end_date,
+      is_parallel: bundleDetails?.is_parallel ?? bundle.is_parallel ?? false,
+    };
+  }, [cartLines, activeBundles]);
 
   const variantGroups = useMemo(() => {
     const groups: Array<{ variant_id: number; qty: number; group_id: string }> =
@@ -711,6 +721,7 @@ export function useBookingFormBase({
       "available-dates",
       viewingMonth,
       JSON.stringify(variantGroups),
+      String(selectedBundle?.id ?? ""),
       String(initialBooking?.id ?? ""),
       String(form.isParallel ?? false),
     ],
@@ -750,6 +761,7 @@ export function useBookingFormBase({
         "available-slots",
         form.date,
         JSON.stringify(variantGroups),
+        String(selectedBundle?.id ?? ""),
         String(initialBooking?.id ?? ""),
         String(form.isParallel ?? false),
       ],
